@@ -17,45 +17,56 @@ class ActualizarAgricultorUseCase:
     def __init__(self, repository: AgricultorRepository, service: AgricultorService):
         self.repository = repository
         self.service = service
-    
-    async def execute(self, dni: str, agricultor: Agricultor) -> Agricultor:
+
+    async def execute(self, dni: str, agricultor_actualizado: Agricultor) -> Agricultor:
         """
         Actualiza un agricultor existente.
         
         Args:
-            dni: DNI del agricultor a actualizar
-            agricultor: Entidad Agricultor con datos actualizados
+            dni: DNI del agricultor a actualizar (de la URL)
+            agricultor_actualizado: Entidad Agricultor con datos actualizados
             
         Returns:
-            Agricultor actualizado con datos actualizados
+            Agricultor actualizado
             
         Raises:
             InvalidDNIException: Si el formato del DNI es inválido
             AgricultorNotFoundException: Si el agricultor no existe
             AgricultorValidationException: Si hay errores de validación
         """
-        # Validar el DNI
+        # 1. Validar el DNI de la URL
         try:
             dni_limpio = self.service._validar_y_limpiar_dni(dni)
         except ValueError as e:
             raise InvalidDNIException(dni, str(e))
         
-        # Verificar si el agricultor existe
-        exists = await self.repository.exists_by_dni(dni_limpio)
-        if not exists:
+        # 2. Verificar que el agricultor existe
+        agricultor_existente = await self.repository.find_by_dni(dni_limpio)
+        if agricultor_existente is None:
             raise AgricultorNotFoundException(dni_limpio)
         
-        # Asegurarse de que el DNI en la entidad coincida con el DNI del path
-        if agricultor.dni != dni_limpio:
-            agricultor.dni = dni_limpio
+        # 3. CRÍTICO: Asegurar que el DNI no cambie
+        # El DNI siempre debe ser el de la URL, ignorando cualquier DNI en el body
+        if agricultor_actualizado.dni != dni_limpio:
+            agricultor_actualizado.dni = dni_limpio
         
+        # 4. Validar los nuevos datos
         try:
-            # Validar los datos del agricultor
-            self.service.validar_datos_agricultor(agricultor)
+            self.service.validar_datos_agricultor(agricultor_actualizado)
         except ValueError as e:
             field = str(e).split(":")[0] if ":" in str(e) else "unknown"
-            raise AgricultorValidationException(field, getattr(agricultor, field, None), str(e))
+            raise AgricultorValidationException(
+                field, 
+                getattr(agricultor_actualizado, field, None), 
+                str(e)
+            )
         
-        # Actualizar en el repositorio
-        agricultor_actualizado = await self.repository.update(agricultor)
-        return agricultor_actualizado
+        # 5. Actualizar en el repositorio
+        try:
+            return await self.repository.update(agricultor_actualizado)
+        except Exception as e:
+            raise AgricultorValidationException(
+                "general", 
+                None, 
+                f"Error actualizando agricultor: {str(e)}"
+            )

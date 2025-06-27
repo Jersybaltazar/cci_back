@@ -169,14 +169,25 @@ def dto_to_agricultor(dto: CrearAgricultorDTO) -> Agricultor:
     )
 
 def update_dto_to_agricultor(dni: str, dto: ActualizarAgricultorDTO) -> Agricultor:
-    """Convierte un DTO de actualización a una entidad Agricultor."""
+    """
+    Convierte un DTO de actualización a una entidad Agricultor.
+    
+    IMPORTANTE: El DNI siempre se toma del parámetro, no del DTO.
+    
+    Args:
+        dni: DNI del agricultor (de la URL)
+        dto: DTO con los datos a actualizar
+        
+    Returns:
+        Entidad Agricultor con el DNI forzado desde la URL
+    """
     return Agricultor(
-        dni=dni,
+        dni=dni,  # SIEMPRE usar el DNI de la URL
         fecha_censo=dto.fecha_censo,
         apellidos=dto.apellidos,
         nombres=dto.nombres,
         nombre_completo=dto.nombre_completo,
-        nombre_empresa_organizacion=dto.nombre_empresa_organizacion,  # NUEVO
+        nombre_empresa_organizacion=dto.nombre_empresa_organizacion,
         pais=dto.pais,
         sexo=dto.sexo,
         edad=dto.edad,
@@ -193,6 +204,7 @@ def update_dto_to_agricultor(dni: str, dto: ActualizarAgricultorDTO) -> Agricult
         pecano=dto.pecano,
         vid=dto.vid,
         castaña=dto.castaña,
+        
         # Ubicación
         dpto=dto.dpto,
         provincia=dto.provincia,
@@ -302,27 +314,80 @@ async def crear_agricultor(
     
 @router.put("/{dni}", response_model=AgricultorDTO)
 async def actualizar_agricultor(
-    dni: str = Path(..., regex="^[0-9]{8}$"),
-    dto: ActualizarAgricultorDTO = None,
+    dto: ActualizarAgricultorDTO,
+    dni: str = Path(..., regex="^[0-9]{8}$", description="DNI del agricultor (8 dígitos)"),
     use_case=Depends(lambda repo=Depends(get_agricultor_repository), 
                      service=Depends(get_agricultor_service): 
                      ActualizarAgricultorUseCase(repo, service))
 ):
     """
     Actualiza un agricultor existente identificado por su DNI.
+    
+    **IMPORTANTE**: El DNI no se puede modificar. Se usa el DNI de la URL.
+    
+    Args:
+        dni: DNI del agricultor a actualizar (de la URL)
+        dto: Datos del agricultor a actualizar (sin DNI)
+        
+    Returns:
+        Agricultor actualizado
+        
+    Raises:
+        400: Si hay errores de validación o DNI inválido
+        404: Si el agricultor no existe
+        422: Si los datos no cumplen las validaciones
+        500: Error interno del servidor
     """
     try:
+        # Convertir DTO a entidad (el DNI se fuerza desde la URL)
         agricultor = update_dto_to_agricultor(dni, dto)
+        
+        # Ejecutar caso de uso
         agricultor_actualizado = await use_case.execute(dni, agricultor)
+        
         return agricultor_to_dto(agricultor_actualizado)
+        
     except AgricultorNotFoundException as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(
+            status_code=404, 
+            detail={
+                "error": "AGRICULTOR_NOT_FOUND",
+                "message": str(e),
+                "dni": dni
+            }
+        )
     except InvalidDNIException as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(
+            status_code=400, 
+            detail={
+                "error": "INVALID_DNI",
+                "message": str(e),
+                "dni": dni
+            }
+        )
     except AgricultorValidationException as e:
-        raise HTTPException(status_code=400, detail=f"Error de validación: {str(e)}")
+        raise HTTPException(
+            status_code=422, 
+            detail={
+                "error": "VALIDATION_ERROR",
+                "message": str(e),
+                "field": getattr(e, 'field', 'unknown'),
+                "value": getattr(e, 'value', None)
+            }
+        )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        # Log del error para debugging
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Error inesperado actualizando agricultor {dni}: {e}")
+        
+        raise HTTPException(
+            status_code=500, 
+            detail={
+                "error": "INTERNAL_SERVER_ERROR",
+                "message": "Error interno del servidor"
+            }
+        )
 
 # Añadimos un nuevo endpoint DELETE (para completar todas las operaciones CRUD)
 @router.delete("/{dni}", status_code=204)

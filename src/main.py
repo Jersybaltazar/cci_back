@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 # Importar configuraciones
 from src.infraestructure.database.config import settings
 from src.infraestructure.web.controllers.agricultor_controller import agricultor_controller
-from src.infraestructure.web.dependencies import close_db_pool
+from src.infraestructure.web.dependencies import close_db_pool, health_check_db
 
 # Configurar logging
 logging.basicConfig(
@@ -21,11 +21,25 @@ async def lifespan(app: FastAPI):
     """Maneja el ciclo de vida de la aplicación."""
     # Startup
     logger.info("Iniciando aplicación...")
+    
+    # Verificar conexión a la base de datos
+    try:
+        db_healthy = await health_check_db()
+        if db_healthy:
+            logger.info("✅ Conexión a base de datos establecida")
+        else:
+            logger.warning("⚠️ Problemas con la conexión a base de datos")
+    except Exception as e:
+        logger.error(f"❌ Error verificando base de datos: {e}")
+    
     yield
+    
     # Shutdown
     logger.info("Cerrando aplicación...")
     await close_db_pool()
+    logger.info("Aplicación cerrada correctamente")
 
+# Crear aplicación FastAPI
 app = FastAPI(
     title=getattr(settings, 'app_name', 'Plantas API'),
     version=getattr(settings, 'app_version', '1.0.0'),
@@ -59,8 +73,10 @@ async def root():
 
 @app.get("/health")
 async def health_check():
+    db_status = await health_check_db()
     return {
-        "status": "healthy",
+        "status": "healthy" if db_status else "unhealthy",
+        "database": "connected" if db_status else "disconnected",
         "environment": getattr(settings, 'environment', 'development')
     }
 

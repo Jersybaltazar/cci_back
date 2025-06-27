@@ -139,6 +139,24 @@ class AgricultorService:
             }
         }
     
+    def validar_actualizacion(self, dni_url: str, agricultor: Agricultor) -> None:
+        """
+        Valida que una actualización sea consistente.
+        
+        Args:
+            dni_url: DNI de la URL del endpoint
+            agricultor: Entidad agricultor a validar
+            
+        Raises:
+            ValueError: Si hay inconsistencias
+        """
+        # Validar que el DNI coincida
+        if agricultor.dni != dni_url:
+            raise ValueError(f"Inconsistencia: DNI en URL ({dni_url}) != DNI en entidad ({agricultor.dni})")
+        
+        # Validar datos generales
+        self.validar_datos_agricultor(agricultor)
+
     def validar_datos_agricultor(self, agricultor: Agricultor) -> None:
         """
         Valida que los datos del agricultor cumplan con las reglas de negocio.
